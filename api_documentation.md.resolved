@@ -1,0 +1,428 @@
+# Xperty API Documentation
+
+This document outlines the API endpoints, data models, and validation rules required for the Xperty Property Management Platform backend.
+
+## Base URL
+`https://api.xperty.com/v1` (Example)
+
+## General Standards
+- **Date Format:** ISO 8601 (`YYYY-MM-DD` or `YYYY-MM-DDTHH:mm:ssZ`)
+- **Currency:** GBP (£) (Stored as integers/decimals as per preference, assumed decimals for amounts)
+- **Pagination:** All list endpoints support `page` and `limit` query parameters.
+- **Error Responses:**
+  - `400 Bad Request`: Validation errors (body contains `errors` array).
+  - `401 Unauthorized`: Missing or invalid token.
+  - `403 Forbidden`: Insufficient permissions.
+  - `404 Not Found`: Resource not found.
+  - `500 Internal Server Error`: Server-side issues.
+
+---
+
+## Authentication
+
+### Register
+Create a new user account.
+- **Endpoint:** `POST /auth/register`
+- **Body:**
+  ```json
+  {
+    "email": "user@example.com", // Required, Unique
+    "password": "securepassword", // Required, Min 8 chars
+    "name": "John Doe", // Required
+    "role": "Landlord" // Required. Enum: ["Landlord", "Enterprise", "Manager"]
+  }
+  ```
+- **Response:** `201 Created`
+  ```json
+  {
+    "success": true,
+    "token": "jwt_token_here",
+    "user": {
+      "id": "user_123",
+      "email": "user@example.com",
+      "name": "John Doe",
+      "role": "Landlord",
+      "createdAt": "2024-01-01T00:00:00Z"
+    }
+  }
+  ```
+
+### Login
+Authenticate a user.
+- **Endpoint:** `POST /auth/login`
+- **Body:**
+  ```json
+  {
+    "email": "user@example.com",
+    "password": "securepassword"
+  }
+  ```
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "token": "jwt_token_here",
+    "user": { ... }
+  }
+  ```
+
+### Get Current User
+Get details of the currently authenticated user.
+- **Endpoint:** `GET /auth/me`
+- **Headers:** `Authorization: Bearer <token>`
+- **Response:** `200 OK`
+  ```json
+  {
+    "user": { ... }
+  }
+  ```
+
+---
+
+## Properties
+
+### Data Model: Property
+| Field | Type | Description |
+|-------|------|-------------|
+| [id](file:///Users/vishnu/Workspace/Projects/Xperty/xperty-prototype/src/hooks/useAuth.jsx#5-110) | String | Unique Identifier |
+| `address` | String | Line 1 of address |
+| `city` | String | City name |
+| `postcode` | String | UK Postcode |
+| `propertyType` | String | Enum: `Residential Apartment`, `Residential House`, `HMO`, `Commercial Office`, `Commercial Retail` |
+| `ownership` | String | Enum: `Freehold`, `Leasehold` |
+| `bedrooms` | Integer | Number of bedrooms |
+| `bathrooms` | Integer | Number of bathrooms |
+| `status` | String | Enum: `Active`, `Draft`, `Archived` |
+| `purchaseDate` | Date | Optional |
+| `purchasePrice` | Number | Optional |
+| `currentValue` | Number | Optional |
+| `isSingleUnit` | Boolean | Default `true` |
+| `units` | Integer | Number of units (if multi-unit) |
+| `selectedAssets` | Array<String> | List of Asset IDs from Asset Library |
+| `customAssets` | Array<Object> | List of custom assets `{ name, description }` |
+| `documents` | Array<Object> | List of file objects |
+| `complianceDocuments` | Array<Object> | List of compliance file objects |
+| `assignee` | String | Email of assigned manager (optional) |
+
+### List Properties
+Get a list of all properties for the authenticated user.
+- **Endpoint:** `GET /properties`
+- **Query Params:**
+  - `page`: Integer (default 1)
+  - `limit`: Integer (default 10)
+  - `status`: String (optional filter)
+  - `search`: String (optional search by address/postcode)
+- **Response:** `200 OK`
+  ```json
+  {
+    "data": [
+      {
+        "id": "prop_123",
+        "address": "10 Downing Street",
+        "city": "London",
+        "postcode": "SW1A 1AA",
+        "status": "Active",
+        "propertyType": "Residential House",
+        "bedrooms": 4,
+        "bathrooms": 3,
+        "currentValue": 5000000
+      }
+    ],
+    "meta": {
+      "total": 1,
+      "page": 1,
+      "limit": 10
+    }
+  }
+  ```
+
+### Get Property Details
+Get full details of a specific property.
+- **Endpoint:** `GET /properties/:id`
+- **Response:** `200 OK`
+  ```json
+  {
+    "id": "prop_123",
+    "address": "10 Downing Street",
+    "city": "London",
+    "postcode": "SW1A 1AA",
+    "propertyType": "Residential House",
+    "ownership": "Freehold",
+    "bedrooms": 4,
+    "bathrooms": 3,
+    "purchaseDate": "2020-01-01",
+    "purchasePrice": 4500000,
+    "currentValue": 5000000,
+    "isSingleUnit": true,
+    "units": 1,
+    "status": "Active",
+    "createdAt": "2024-01-01T00:00:00Z",
+    "assignee": "manager@example.com",
+    "selectedAssets": ["boiler-gas", "smoke-detector"],
+    "customAssets": [
+       { "id": "cust_1", "name": "Antique Chandelier", "value": 5000 }
+    ],
+    "documents": [
+      { "id": "doc_1", "name": "Title Deed", "url": "...", "type": "application/pdf", "size": "2MB" }
+    ],
+    "complianceDocuments": [
+      { "id": "comp_1", "name": "Gas Safety", "expiryDate": "2025-01-01", "url": "...", "type": "application/pdf" }
+    ],
+    "additionalUsers": [
+      { "email": "partner@example.com", "role": "Manager" }
+    ]
+  }
+  ```
+
+### Create Property
+Create a new property. Supports creating in `Draft` mode (minimal validation) or `Active` mode (full validation).
+- **Endpoint:** `POST /properties`
+- **Body:**
+  ```json
+  {
+    "address": "10 Downing Street",
+    "city": "London",
+    "postcode": "SW1A 1AA",
+    "propertyType": "Residential House",
+    "ownership": "Freehold",
+    "bedrooms": 4,
+    "bathrooms": 3,
+    "status": "Draft", // or "Active"
+    "selectedAssets": ["boiler-gas"],
+    // Optional: Create tenant during property creation
+    "tenantDetails": {
+        "name": "Alice Smith",
+        "email": "alice@example.com",
+        "leaseStart": "2024-01-01",
+        "rentAmount": 1500
+    }
+  }
+  ```
+- **Response:** `201 Created`
+  ```json
+  {
+    "success": true,
+    "data": { "id": "prop_124", ... }
+  }
+  ```
+
+### Update Property
+Update an existing property.
+- **Endpoint:** `PUT /properties/:id`
+- **Body:** (Partial object of fields to update)
+- **Response:** `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": { ... }
+  }
+  ```
+
+### Delete Property
+- **Endpoint:** `DELETE /properties/:id`
+- **Response:** `204 No Content`
+
+---
+
+## Tenants
+
+### Data Model: Tenant
+| Field | Type | Description |
+|-------|------|-------------|
+| [id](file:///Users/vishnu/Workspace/Projects/Xperty/xperty-prototype/src/hooks/useAuth.jsx#5-110) | String | Unique Identifier |
+| `name` | String | Full Name |
+| `email` | String | Email Address |
+| `phone` | String | Phone Number |
+| `propertyId` | String | ID of the property |
+| `unit` | String | Unit name/number (if applicable) |
+| `status` | String | Enum: `Active`, `Past`, `Prospective` |
+| `rentAmount` | Number | Monthly Rent |
+| `depositAmount` | Number | Security Deposit |
+| `leaseStart` | Date | Lease Start Date |
+| `leaseEnd` | Date | Lease End Date |
+
+### List Tenants
+- **Endpoint:** `GET /tenants`
+- **Query Params:** `propertyId` (optional filter), `status`
+- **Response:** `200 OK`
+  ```json
+  {
+    "data": [
+      {
+        "id": "ten_1",
+        "name": "Alice Smith",
+        "email": "alice@example.com",
+        "propertyId": "prop_123",
+        "status": "Active",
+        "rentAmount": 1500
+      }
+    ]
+  }
+  ```
+
+### Get Tenant Details
+Includes sub-resources like rent history and maintenance requests.
+- **Endpoint:** `GET /tenants/:id`
+- **Response:** `200 OK`
+  ```json
+  {
+    "id": "ten_1",
+    "name": "Alice Smith",
+    "email": "alice@example.com",
+    "phone": "+44 7700 900000",
+    "status": "Active",
+    "propertyId": "prop_123",
+    "unit": "Flat 1",
+    "rentAmount": 1500,
+    "depositAmount": 1500,
+    "leaseStart": "2024-01-01",
+    "leaseEnd": "2025-01-01",
+    "documents": [
+       { "id": "doc_1", "name": "AST Agreement", "type": "AST", "url": "..." }
+    ],
+    "rentHistory": [
+      { "id": 1, "month": "December 2024", "amount": 1500, "status": "Paid", "date": "2024-12-01", "method": "Bank Transfer" }
+    ],
+    "communications": [
+      { "id": 1, "type": "email", "subject": "Welcome", "date": "2024-01-01", "status": "sent" }
+    ]
+  }
+  ```
+
+### Create Tenant
+- **Endpoint:** `POST /tenants`
+- **Body:**
+  ```json
+  {
+    "name": "Alice Smith",
+    "email": "alice@example.com",
+    "propertyId": "prop_123",
+    "leaseStart": "2024-01-01",
+    "rentAmount": 1500
+    // ...
+  }
+  ```
+
+### Update Tenant
+- **Endpoint:** `PUT /tenants/:id`
+
+---
+
+## Maintenance
+
+### Data Model: Maintenance Request
+| Field | Type | Description |
+|-------|------|-------------|
+| [id](file:///Users/vishnu/Workspace/Projects/Xperty/xperty-prototype/src/hooks/useAuth.jsx#5-110) | String | Unique Identifier |
+| `title` | String | Short title of the issue |
+| `description` | String | Detailed description |
+| `priority` | String | Enum: `Low`, `Medium`, `High`, `Emergency` |
+| `status` | String | Enum: `Open`, `In Progress`, `Completed`, `Cancelled` |
+| `propertyId` | String | ID of the property |
+| `tenantId` | String | ID of the tenant (optional) |
+| `reportedDate` | Date | Date reported |
+| `completedDate` | Date | Date completed (optional) |
+| `cost` | Number | Cost of repair (optional) |
+
+### List Maintenance Requests
+- **Endpoint:** `GET /maintenance`
+- **Query Params:** `propertyId`, `tenantId`, `status`
+- **Response:** `200 OK`
+  ```json
+  {
+    "data": [
+      {
+        "id": "maint_1",
+        "title": "Leaking Tap",
+        "status": "Open",
+        "priority": "Medium",
+        "propertyId": "prop_123",
+        "reportedDate": "2024-12-01"
+      }
+    ]
+  }
+  ```
+
+### Create Maintenance Request
+- **Endpoint:** `POST /maintenance`
+- **Body:**
+  ```json
+  {
+    "title": "Leaking Tap",
+    "description": "Kitchen tap is dripping constantly",
+    "priority": "Medium",
+    "propertyId": "prop_123",
+    "tenantId": "ten_1"
+  }
+  ```
+
+### Update Maintenance Request
+- **Endpoint:** `PUT /maintenance/:id`
+- **Body:**
+  ```json
+  {
+    "status": "Completed",
+    "completedDate": "2024-12-05",
+    "cost": 85
+  }
+  ```
+
+---
+
+## Utilities
+
+### Postcode Lookup
+Search for addresses by postcode.
+- **Endpoint:** `GET /utils/postcode/:postcode`
+- **Response:** `200 OK`
+  ```json
+  {
+    "data": [
+      {
+        "address": "10 Downing Street",
+        "city": "London",
+        "postcode": "SW1A 1AA",
+        "propertyType": "Residential House",
+        "bedrooms": 4,
+        "bathrooms": 3
+      }
+    ]
+  }
+  ```
+
+---
+
+## Assets & Compliance
+
+### Get Asset Library
+Returns the static list of available asset categories and items.
+- **Endpoint:** `GET /assets/library`
+- **Response:** `200 OK`
+  ```json
+  {
+    "heating-cooling": {
+      "name": "Heating & Cooling",
+      "assets": [
+        { "id": "boiler-gas", "name": "Gas Boiler", "compliance": ["gas-safety"] }
+      ]
+    }
+    // ... full library
+  }
+  ```
+
+## File Uploads
+
+### Upload File
+- **Endpoint:** `POST /upload`
+- **Body:** `FormData` with file
+- **Response:** `201 Created`
+  ```json
+  {
+    "url": "https://storage.xperty.com/uploads/file.pdf",
+    "id": "file_123",
+    "name": "file.pdf",
+    "size": 1024,
+    "type": "application/pdf",
+    "uploadedAt": "2024-12-04T12:00:00Z"
+  }
+  ```
